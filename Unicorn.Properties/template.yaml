@@ -72,7 +72,6 @@ Globals:
 
 #### RESOURCES
 Resources:
-
   #### SSM PARAMETERS
   # Services own and share their namespace
   UnicornPropertiesNamespaceParam: 
@@ -231,7 +230,7 @@ Resources:
     Type: AWS::Serverless::StateMachine
     Properties:
       Name: !Sub "${AWS::StackName}-ApprovalStateMachine"
-      DefinitionUri: ./StateMachine/PropertyApproval.asl.yaml
+      DefinitionUri: StateMachine/PropertyApproval.asl.yaml
       Tracing:
         Enabled: true
       Policies:
@@ -251,15 +250,15 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
-                - "logs:CreateLogDelivery"
-                - "logs:GetLogDelivery"
-                - "logs:UpdateLogDelivery"
-                - "logs:DeleteLogDelivery"
-                - "logs:ListLogDeliveries"
-                - "logs:PutResourcePolicy"
-                - "logs:DescribeResourcePolicies"
-                - "logs:DescribeLogGroups"
-                - "cloudwatch:PutMetricData"
+                - logs:CreateLogDelivery
+                - logs:GetLogDelivery
+                - logs:UpdateLogDelivery
+                - logs:DeleteLogDelivery
+                - logs:ListLogDeliveries
+                - logs:PutResourcePolicy
+                - logs:DescribeResourcePolicies
+                - logs:DescribeLogGroups
+                - cloudwatch:PutMetricData
               Resource: "*"
       Logging:
         Destinations:
@@ -384,7 +383,6 @@ Resources:
 
 
 #### EVENT BUS
-  
   # Event bus for Contract Service used to publish and consume events
   UnicornPropertiesEventBus:
     Type: AWS::Events::EventBus
@@ -392,7 +390,7 @@ Resources:
       Name: !Sub UnicornContractsBus-${Stage}
 
   # Event bus policy to restrict who can publish events (should only be services from ServiceNamespace)
-  ContractEventsBusPublishPolicy:
+  UnicornPropertiesEventsBusPublishPolicy:
     Type: AWS::Events::EventBusPolicy
     Properties:
       EventBusName: !Ref UnicornPropertiesEventBus
@@ -409,39 +407,7 @@ Resources:
             events:source:
               - !FindInMap [Constants, ServiceNamespace, Value]
 
-
-  # Event bus policy to restrict who can create rules on the event bus to subscribe to events published by the Contracts Service.
-  # Update this policy as you get new subscribers by adding their namespace to events:source
-#  PropertiesServiceRulePolicy:
-#    Type: "AWS::Events::EventBusPolicy"
-#    Properties:
-#      EventBusName: !Ref UnicornContractsEventBus
-#      StatementId: !Sub CreateRulePolicy-${Stage}
-#      Statement:
-#        Effect: Allow
-#        Principal:
-#          AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
-#        Action:
-#          - "events:PutRule"
-#          - "events:DeleteRule"
-#          - "events:DescribeRule"
-#          - "events:DisableRule"
-#          - "events:EnableRule"
-#          - "events:PutTargets"
-#          - "events:RemoveTargets"
-#        Resource:
-#          - !Sub >-
-#            arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/${UnicornContractsEventBus.Name}/*
-#        Condition:
-#          StringEqualsIfExists:
-#            "events:creatorAccount": "${aws:PrincipalAccount}"
-#          StringEquals:
-#            "events:source":
-#              - !Sub "{{resolve:ssm:/UniProp/${Stage}/UnicornPropertiesNamespace}}"
-#          "Null":
-#            "events:source": "false"
-
-# Catchall rule used for development purposes.
+  # Catchall rule used for development purposes.
   UnicornPropertiesCatchAllRule:
     Type: AWS::Events::Rule
     Properties:

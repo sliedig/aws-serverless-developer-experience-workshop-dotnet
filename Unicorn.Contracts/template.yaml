@@ -79,7 +79,7 @@ Globals:
       project: !FindInMap [Constants, ProjectName, Value]
       namespace: !FindInMap [Constants, ServiceNamespace, Value]
 
-##### RESOURCES
+#### RESOURCES
 Resources:
   #### SSM PARAMETERS
   # Services own and share their namespace
@@ -132,10 +132,7 @@ Resources:
     UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: !Sub "/aws/lambda/${ContractEventHandlerFunction}"
-      RetentionInDays: !FindInMap
-        - LogsRetentionPeriodMap
-        - !Ref Stage
-        - Days
+      RetentionInDays: !FindInMap [LogsRetentionPeriodMap, !Ref Stage, Days]
 
   #### API GATEWAY REST API
   UnicornContractsApi:
@@ -150,10 +147,7 @@ Resources:
         - MetricsEnabled: true
           ResourcePath: /*
           HttpMethod: "*"
-          LoggingLevel: !If
-            - IsProd
-            - ERROR
-            - INFO
+          LoggingLevel: !If [IsProd, ERROR, INFO]
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 100
       AccessLogSetting:
@@ -170,7 +164,7 @@ Resources:
       DefinitionBody: !Transform
         Name: "AWS::Include"
         Parameters:
-          Location: "./api.yaml"
+          Location: "api.yaml"
       Tags:
         stage: !Ref Stage
         project: !FindInMap [Constants, ProjectName, Value]
@@ -194,12 +188,11 @@ Resources:
       Policies:
         - PolicyName: AllowSqsIntegration
           PolicyDocument:
-            Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - "sqs:SendMessage"
-                  - "sqs:GetQueueUrl"
+                  - sqs:SendMessage
+                  - sqs:GetQueueUrl
                 Resource: !GetAtt UnicornContractsIngestQueue.Arn
 
   # API GW Cloudwatch Log Group
@@ -208,26 +201,19 @@ Resources:
     UpdateReplacePolicy: Delete
     DeletionPolicy: Delete
     Properties:
-      RetentionInDays: !FindInMap
-        - LogsRetentionPeriodMap
-        - !Ref Stage
-        - Days
+      RetentionInDays: !FindInMap [LogsRetentionPeriodMap, !Ref Stage, Days]
 
   UnicornContractsApiGwAccountConfigRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: 2012-10-17
         Statement:
           - Effect: Allow
+            Action: sts:AssumeRole
             Principal:
-              Service:
-                - apigateway.amazonaws.com
-            Action: "sts:AssumeRole"
-      Path: /
+              Service: apigateway.amazonaws.com
       ManagedPolicyArns:
-        - >-
-          arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
 
   #### INGEST QUEUES
   UnicornContractsIngestQueue:
@@ -282,15 +268,14 @@ Resources:
         StreamViewType: NEW_AND_OLD_IMAGES
       BillingMode: PAY_PER_REQUEST
       Tags:
+        - Key: stage
+          Value: !Ref Stage
         - Key: project
           Value: !FindInMap [Constants, ProjectName, Value]
         - Key: namespace
           Value: !FindInMap [Constants, ServiceNamespace, Value]
-        - Key: stage
-          Value: !Ref Stage
 
   #### EVENT BUS
-
   # Event bus for Contract Service used to publish and consume events
   UnicornContractsEventBus:
     Type: AWS::Events::EventBus
@@ -323,10 +308,8 @@ Resources:
       Description: Catch all events published by the contracts service.
       EventBusName: !Ref UnicornContractsEventBus
       EventPattern:
-        account:
-          - !Ref AWS::AccountId
         source:
-          - !FindInMap [Constants, ServiceNamespace, Value]
+          - prefix: ""
       State: ENABLED #You may want to disable this rule in production
       Targets:
         - Arn: !GetAtt UnicornContractsCatchAllLogGroup.Arn
@@ -338,44 +321,37 @@ Resources:
     UpdateReplacePolicy: Delete
     DeletionPolicy: Delete
     Properties:
-      LogGroupName: !Sub
-        - "/aws/events/${Stage}/${NS}-catchall"
-        - Stage: !Ref Stage
-          NS: !FindInMap [Constants, ServiceNamespace, Value]
-      RetentionInDays: 3
+      RetentionInDays: !FindInMap [LogsRetentionPeriodMap, !Ref Stage, Days]
 
   # Permissions to allow EventBridge to send logs to CloudWatch
   EventBridgeCloudWatchLogGroupPolicy:
     Type: AWS::Logs::ResourcePolicy
     Properties:
-      PolicyName: !Sub EvBToCWLogs-${AWS::StackName}
+      PolicyName: !Sub UnicornContracts-EventBridgeToCWLogsPolicy-${Stage}
       # Note: PolicyDocument has to be established this way. See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-logs-resourcepolicy.html#cfn-logs-resourcepolicy-policydocument
-      PolicyDocument: !Sub
-        - |
-          {
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Effect": "Allow",
-                "Principal": {
-                  "Service": [
-                    "delivery.logs.amazonaws.com",
-                    "events.amazonaws.com"
-                  ]
-                },
-                "Action": [
-                  "logs:CreateLogStream",
-                  "logs:PutLogEvents"
-                ],
-                "Resource": [
-                  "${contractsServiceLogGroup}"
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "delivery.logs.amazonaws.com",
+                  "events.amazonaws.com"
                 ]
-              }
-            ]
-          }
-        - { contractsServiceLogGroup: UnicornContractsCatchAllLogGroup.Arn }
-          
-          
+              },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": [
+                "${UnicornContractsCatchAllLogGroup.Arn}"
+              ]
+            }
+          ]
+        }
+
   #### EVENT BRIDGE PIPES
   # Pipe changed on DynamoDB Table to UnicornContractsEventBus
   DdbStreamToEventPipe:
@@ -438,15 +414,19 @@ Resources:
                 Action:
                   - events:PutEvents
                 Resource: !GetAtt UnicornContractsEventBus.Arn
-# OUTPUTS
+
+#### OUTPUTS
 Outputs:
+  BaseUrl:
+    Description: Web service API endpoint
+    Value: !Sub "https://${UnicornContractsApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
   ApiUrl:
     Description: Contract service API endpoint
     Value: !Sub "https://${UnicornContractsApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${Stage}/"
 
-  BaseUrl:
-    Description: Web service API endpoint
-    Value: !Sub "https://${UnicornContractsApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  IngestQueueUrl:
+    Description: URL for the Ingest SQS Queue
+    Value: !GetAtt UnicornContractsIngestQueue.QueueUrl
 
   ContractsTableName:
     Description: DynamoDB table storing contract information
@@ -456,9 +436,9 @@ Outputs:
     Description: Create Contract function ARN
     Value: !GetAtt ContractEventHandlerFunction.Arn
 
+  UnicornContractsCatchAllLogGroupArn:
+    Value: !GetAtt UnicornContractsCatchAllLogGroup.Arn
+
   IsProd:
     Description: Is Production?
-    Value: !If
-      - IsProd
-      - "true"
-      - "false"
+    Value: !If [IsProd, "true", "false"]
